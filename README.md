@@ -40,11 +40,11 @@ Just because you have to use a coding agent at work doesn't mean you can't have 
    jq '.hooks.SessionStart = ((.hooks.SessionStart // []) + [{"matcher":"","hooks":[{"type":"command","command":"~/.config/claudius/claudius.sh"}]}] | unique)' ~/.claude/settings.json > ~/.claude/settings.tmp && mv ~/.claude/settings.tmp ~/.claude/settings.json
    ```
 
-That's it. At the start of each new session Claude will pick a random personality from the `personalities/` folder and adopt it for the entire session.
+That's it. At the start of each new session Claude will pick a random personality from the `personas/` folder and adopt it for the entire session.
 
 ## Adding personalities
 
-Drop any `.md` file into `personalities/`. Describe the persona in plain language — how Claude should speak, what it should emphasize, any quirks.
+Drop any `.md` file into `personas/`. Describe the persona in plain language — how Claude should speak, what it should emphasize, any quirks.
 
 ## Disabling a persona
 
