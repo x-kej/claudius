@@ -1,13 +1,13 @@
 # Claudius
 
-Just because you have to use a coding agent at work doesn't mean you can't have a little extra whimsy in your life. This project gives Claude Code a randomly chosen personality at the start of each session.
+Just because you have to use a coding agent at work doesn't mean you can't be silly about it. This project gives Claude Code a randomly chosen personality at the start of each session.
 
 ## Setup
 
 1. Clone or copy this repo to `~/.config/claudius/`:
 
    ```bash
-   git clone <repo-url> ~/.config/claudius
+   git clone https://github.com/x-kej/claudius ~/.config/claudius
    ```
 
 2. Add a `SessionStart` hook to `~/.claude/settings.json`:
@@ -48,4 +48,4 @@ Drop any `.md` file into `personas/`. Describe the persona in plain language —
 
 ## Disabling a persona
 
-Set its weight to `0` in `weights.txt` and it will be permanently skipped — never selected, and never incremented back into rotation.
+The script uses a weighted history in `weights.txt` to make it less likely to see the same personalities in a row. To remove personalities from the rotation, run the script at least once to create the weights file and then set the personality's weight to `0`.
