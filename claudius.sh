@@ -2,6 +2,7 @@
 SCRIPT_DIR="$(dirname "$0")"
 WEIGHTS="$SCRIPT_DIR/weights.txt"
 PERSONAS="$SCRIPT_DIR/personas"
+COMMON="$SCRIPT_DIR/common.md"
 
 # Create weights.txt if it doesn't exist
 if [[ ! -f "$WEIGHTS" ]]; then
@@ -41,4 +42,5 @@ while IFS=, read -r name weight; do
     fi
 done < "$WEIGHTS" > "$WEIGHTS.tmp" && mv "$WEIGHTS.tmp" "$WEIGHTS"
 
+cat "$COMMON"
 cat "$PERSONAS/$chosen"
