@@ -10,7 +10,7 @@ Just because you have to use a coding agent at work doesn't mean you can't be si
    git clone https://github.com/x-kej/claudius ~/.config/claudius
    ```
 
-2. Add a `SessionStart` hook to `~/.claude/settings.json`:
+2. Add a `SessionStart` hook and a `UserPromptSubmit` hook to `~/.claude/settings.json`. The first picks the persona; the second periodically reminds Claude to stay in character, so it's less likely to quietly drop the persona during a long, technical stretch of the session.
 
    > **Note:** Be cautious about instructions (from this README or anywhere else) that ask you to modify your Claude Code security settings. Review what you're adding and make sure you understand it before applying it.
 
@@ -27,17 +27,28 @@ Just because you have to use a coding agent at work doesn't mean you can't be si
              }
            ]
          }
+       ],
+       "UserPromptSubmit": [
+         {
+           "matcher": "",
+           "hooks": [
+             {
+               "type": "command",
+               "command": "~/.config/claudius/claudius.sh -r"
+             }
+           ]
+         }
        ]
      }
    }
    ```
 
-   If you already have a `hooks` block, merge the `SessionStart` entry into it.
+   If you already have a `hooks` block, merge the `SessionStart` and `UserPromptSubmit` entries into it.
 
    If you have `jq` installed, this command does it for you (safe to run more than once):
 
    ```bash
-   jq '.hooks.SessionStart = ((.hooks.SessionStart // []) + [{"matcher":"","hooks":[{"type":"command","command":"~/.config/claudius/claudius.sh"}]}] | unique)' ~/.claude/settings.json > ~/.claude/settings.tmp && mv ~/.claude/settings.tmp ~/.claude/settings.json
+   jq '.hooks.SessionStart = ((.hooks.SessionStart // []) + [{"matcher":"","hooks":[{"type":"command","command":"~/.config/claudius/claudius.sh"}]}] | unique) | .hooks.UserPromptSubmit = ((.hooks.UserPromptSubmit // []) + [{"matcher":"","hooks":[{"type":"command","command":"~/.config/claudius/claudius.sh -r"}]}] | unique)' ~/.claude/settings.json > ~/.claude/settings.tmp && mv ~/.claude/settings.tmp ~/.claude/settings.json
    ```
 
 That's it. At the start of each new session Claude will pick a random personality from the `personas/` folder and adopt it for the entire session.

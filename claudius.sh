@@ -3,7 +3,32 @@ SCRIPT_DIR="$(dirname "$0")"
 WEIGHTS="$SCRIPT_DIR/weights.csv"
 PERSONAS="$SCRIPT_DIR/personas"
 COMMON="$SCRIPT_DIR/common.md"
-readonly SCRIPT_DIR WEIGHTS PERSONAS COMMON
+REMINDER_FREQUENCY=10
+readonly SCRIPT_DIR WEIGHTS PERSONAS COMMON REMINDER_FREQUENCY
+
+# Read stdin once — session_id is needed by both branches below.
+input="$(cat)"
+session_id="$(printf '%s' "$input" | grep -o '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | head -n1 | sed -E 's/.*:[[:space:]]*"([^"]*)"/\1/')"
+state_file="/tmp/claudius-$session_id"
+
+# UserPromptSubmit hook: read back the reminder seeded at SessionStart and
+# fire it every REMINDER_FREQUENCY turns.
+if [[ "$1" == "-r" || "$1" == "--remind" ]]; then
+    [[ -f "$state_file" ]] || exit 0
+
+    reminder=$(sed -n '1p' "$state_file")
+    count=$(sed -n '2p' "$state_file")
+    ((count++))
+
+    if (( count >= REMINDER_FREQUENCY )); then
+        echo "$reminder"
+        count=0
+    fi
+
+    tmp=$(mktemp "$state_file.XXXXXX")
+    printf '%s\n%d\n' "$reminder" "$count" > "$tmp" && mv "$tmp" "$state_file"
+    exit 0
+fi
 
 # Load existing weights, dropping entries whose persona file no longer exists
 names=()
@@ -68,6 +93,14 @@ tmp=$(mktemp "$WEIGHTS.XXXXXX")
         fi
     done
 } > "$tmp" && mv "$tmp" "$WEIGHTS"
+
+# Seed the reminder state for this session so the UserPromptSubmit hook (-r)
+# has something to read back later.
+if [[ -n "$chosen" ]]; then
+    identity="$(head -n 1 "$PERSONAS/$chosen")"
+    reminder="Reminder — ${identity#- } Stay in character even in dense, technical, or tool-heavy responses."
+    printf '%s\n0\n' "$reminder" > "$state_file"
+fi
 
 cat "$COMMON"
 if [[ -n "$chosen" ]]; then
