@@ -3,7 +3,7 @@ SCRIPT_DIR="$(dirname "$0")"
 WEIGHTS="$SCRIPT_DIR/weights.csv"
 PERSONAS="$SCRIPT_DIR/personas"
 COMMON="$SCRIPT_DIR/common.md"
-REMINDER_FREQUENCY=4
+REMINDER_FREQUENCY=8
 readonly SCRIPT_DIR WEIGHTS PERSONAS COMMON REMINDER_FREQUENCY
 
 # Read stdin once — session_id is needed by both branches below.
@@ -95,20 +95,15 @@ tmp=$(mktemp "$WEIGHTS.XXXXXX")
 } > "$tmp" && mv "$tmp" "$WEIGHTS"
 
 if [[ -n "$chosen" ]]; then
-    # Seed the reminder state for this session so the UserPromptSubmit hook
-    # (-r) has something to read back later.
-    identity="$(head -n 1 "$PERSONAS/$chosen")"
-    # Bullets tagged "(REMINDER)" in common.md are the anti-drift rules most
-    # likely to have lapsed by the time this fires — dense/technical content
-    # isn't exempt, and the voice must hold for the whole response, not just
-    # its bookends. Tagged rather than keyed by line number or wording so the
-    # tag travels with the bullet even if it's reordered or reworded.
-    anti_drift="$(grep -F '(REMINDER)' "$COMMON" | sed -E 's/^- //; s/ \(REMINDER\)$//' | tr '\n' ' ' | sed -E 's/ +$//')"
-    reminder="Reminder — ${identity#- } ${anti_drift}"
+    # Tagged rather than keyed by line number or wording, so a "(REMINDER)"
+    # line still gets picked up even if it's reordered, reworded, or absent.
+    blob="$(cat "$PERSONAS/$chosen" "$COMMON")"
+
+    reminder_lines="$(grep -F '(REMINDER)' <<< "$blob" | sed -E 's/^- //; s/ \(REMINDER\)$//' | tr '\n' ' ' | sed -E 's/ +$//')"
+    reminder="Reminder — ${reminder_lines}"
     printf '%s\n0\n' "$reminder" > "$state_file"
 
-    sed -E 's/ \(REMINDER\)$//' "$COMMON"
-    cat "$PERSONAS/$chosen"
+    sed -E 's/ \(REMINDER\)$//' <<< "$blob"
 else
     echo "claudius: No persona could be loaded this session (personas/ directory is empty, or weights.csv is malformed). Alert the user to this at the start of your first response, in plain language — no persona voice, since none is active this session."
 fi
