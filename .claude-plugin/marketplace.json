@@ -1,0 +1,12 @@
+{
+  "name": "claudius",
+  "owner": { "name": "Kevin E. Johnson" },
+  "description": "A random persona for every Claude Code session.",
+  "plugins": [
+    {
+      "name": "claudius",
+      "source": "./",
+      "description": "Gives each Claude Code session a randomly chosen persona, delivered as an output style."
+    }
+  ]
+}
