@@ -6,7 +6,7 @@
     {
       "name": "claudius",
       "source": "./",
-      "description": "Gives each Claude Code session a randomly chosen persona, delivered as an output style."
+      "description": "Gives each Claude Code session a randomly chosen persona."
     }
   ]
 }

@@ -31,21 +31,17 @@ If you install from a local clone that still has the old `weights.csv` in it, yo
 
 ## How it works
 
-The persona is delivered as an [output style](https://code.claude.com/docs/en/output-styles), Claude Code's built-in mechanism for setting a session's voice, instead of as hook output.
+The plugin's `SessionStart` hook prints the persona as session context, and records it in a per-session state file in the plugin's data directory. Each session has its own record, so sessions running at the same time never affect each other.
 
-1. When a session starts, the plugin's `SessionStart` hook draws a persona and writes it to `output-styles/persona.md`.
-2. Claude Code reads the plugin's output style after that hook has run, and the style arrives with the first prompt. So the session gets the persona just written.
-3. A `UserPromptSubmit` hook adds a short reminder of that persona's voice every few prompts.
+- **New session or `/clear`:** draws a fresh persona.
+- **Resume (`claude --resume`, `--continue`) or compaction:** re-sends the persona already recorded for that session, so the voice survives. If the record is gone (older than 30 days, or the session predates this version), it draws a new one and tells Claude to drop any earlier persona.
+- **Every few prompts:** a `UserPromptSubmit` hook adds a short reminder of the same recorded persona's voice.
 
-The style sets `force-for-plugin: true`, so it applies whenever the plugin is enabled, without an `outputStyle` setting. It also sets `keep-coding-instructions: true`, so Claude keeps its normal software-engineering instructions.
+Each draw is logged to `picks.log` in the plugin's data directory, one line per draw: time, session id, start source, persona.
 
-Each draw is logged to `picks.log` in the plugin's data directory, one line per session: time, session id, persona.
+### Upgrading from the output-style version
 
-A few consequences of the style being a single shared file:
-
-- If a second session starts before the first one has had its first turn, both end up with the same persona, the one written last. On each session's first prompt, the reminder hook re-reads the style file, so each session's reminders still match the voice it actually loaded.
-- `/reload-plugins` re-reads the style file, so it can switch a running session to whatever persona a later session wrote.
-- Resuming an old session (`claude --resume`) doesn't draw a new persona. It gets whatever the style file holds.
+Earlier plugin versions delivered the persona as an output style, written to a single `output-styles/persona.md` that every session shared, so sessions could overwrite each other's personas. If that file is still in your clone, delete it. Otherwise Claude Code keeps loading it as a forced output style alongside the hook's persona.
 
 ## Configuration
 
@@ -59,7 +55,7 @@ Picks are weighted to keep recent personas from repeating. The weights live in t
 
 ### Reminder frequency
 
-The reminder fires every 4 prompts. To change that, set `CLAUDIUS_REMIND_EVERY` in the `env` block of your Claude Code settings. Set it to `0` to turn reminders off and rely on the output style alone.
+The reminder fires every 4 prompts. To change that, set `CLAUDIUS_REMIND_EVERY` in the `env` block of your Claude Code settings. Set it to `0` to turn reminders off and rely on the session-start persona alone.
 
 ## Writing personas
 
@@ -88,8 +84,8 @@ You ARE … (who the persona is, in a sentence or two)
 
 The sample and the lexicon do most of the work. Claude imitates examples much more reliably than it follows descriptions of a tone. `common.md` holds the rules every persona shares, and it's appended to each one.
 
-Every new session draws a fresh persona and overwrites `output-styles/persona.md`, so the way to try a particular persona while tuning it is through the weights. Temporarily set every other persona's weight to `0`.
+Every new session draws a fresh persona, so the way to try a particular persona while tuning it is through the weights. Temporarily set every other persona's weight to `0`.
 
 ## Running without the plugin
 
-`claudius.sh` still works as a plain `SessionStart` hook in `settings.json`, without the plugin. In that mode it prints a persona as session context, with no output style, and keeps its state in `.state/` in the repo. The reminder hook is `claudius.sh --remind`.
+`claudius.sh` also works as a plain `SessionStart` hook in `settings.json`, without the plugin. It behaves the same way, but keeps its state in `.state/` in the repo. The reminder hook is `claudius.sh --remind`.

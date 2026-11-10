@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
 # Claudius: gives each Claude Code session a randomly chosen persona.
 #
-# As a plugin (Claude Code sets CLAUDE_PLUGIN_ROOT and CLAUDE_PLUGIN_DATA):
-#   SessionStart / startup: draw this session's persona and write it to
-#     output-styles/persona.md. Claude Code reads the plugin's output style
-#     after SessionStart hooks run (observed: the style arrives with the first
-#     prompt), so the session picks up the persona written here. Each draw is
-#     logged to $CLAUDE_PLUGIN_DATA/picks.log for checking that ordering.
-#   UserPromptSubmit (--remind): every Nth prompt, print a short voice cue.
+# SessionStart: print the session's persona as session context.
+#   startup, clear: draw a new persona and record it for this session id.
+#   resume, compact: re-print the persona already recorded for this session
+#     id, so the voice survives a restart or a compaction. If none is
+#     recorded (the state expired, or the session predates this version),
+#     draw one.
+# UserPromptSubmit (--remind): every Nth prompt, print a short voice cue for
+#   the session's recorded persona.
 #
-# Standalone (wired up directly in settings.json, no plugin environment):
-#   every session start draws a persona and prints it as session context.
+# Each session's persona lives in its own state file, so concurrent sessions
+# never see each other's draws.
+#
+# Runs the same way as a plugin (Claude Code sets CLAUDE_PLUGIN_ROOT and
+# CLAUDE_PLUGIN_DATA) or wired up directly in settings.json, where state goes
+# in .state/ next to this script.
 #
 # Environment:
 #   CLAUDIUS_REMIND_EVERY  prompts between reminders (default 4, 0 disables)
@@ -20,8 +25,6 @@ set -u
 ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")" && pwd)}"
 PERSONAS="$ROOT/personas"
 COMMON="$ROOT/common.md"
-STYLE_DIR="$ROOT/output-styles"
-STYLE="$STYLE_DIR/persona.md"
 
 if [[ -n "${CLAUDE_PLUGIN_DATA:-}" ]]; then
     PLUGIN=1
@@ -32,6 +35,7 @@ else
 fi
 WEIGHTS="$DATA/weights.csv"
 SESSIONS="$DATA/sessions"
+SESSION_TTL_DAYS=30
 
 REMIND_EVERY="${CLAUDIUS_REMIND_EVERY:-4}"
 [[ "$REMIND_EVERY" =~ ^[0-9]+$ ]] || REMIND_EVERY=4
@@ -58,6 +62,12 @@ render() {
     persona_body "$PERSONAS/$1"
     printf '\n'
     cat "$COMMON"
+}
+
+# One string field from the hook's JSON input.
+json_field() {
+    printf '%s' "$input" | grep -o "\"$1\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -n 1 |
+        sed -E 's/.*:[[:space:]]*"([^"]*)"/\1/'
 }
 
 # Weighted draw that favors personas not seen in a while. Sets PICKED to a
@@ -116,22 +126,6 @@ pick() {
     done > "$tmp" && mv "$tmp" "$WEIGHTS"
 }
 
-# Write a persona as the plugin's output style.
-write_style() {
-    local tmp
-    mkdir -p "$STYLE_DIR"
-    tmp="$(mktemp "$STYLE.XXXXXX")" || return
-    {
-        printf -- '---\n'
-        printf 'name: persona\n'
-        printf 'description: Claudius persona: %s\n' "${1%.md}"
-        printf 'keep-coding-instructions: true\n'
-        printf 'force-for-plugin: true\n'
-        printf -- '---\n\n'
-        render "$1"
-    } > "$tmp" && mv "$tmp" "$STYLE"
-}
-
 # The reminder text for a persona, or the generic one if it has no cue.
 reminder_text() {
     local cue=""
@@ -143,60 +137,45 @@ reminder_text() {
     fi
 }
 
-# Session state file: line 1 is the reminder text, line 2 the prompt count,
-# line 3 is set once the reminder has been synced to the loaded style.
-seed_reminder() {
-    printf '%s\n0\n\n' "$(reminder_text "$2")" > "$SESSIONS/$1"
+# Session state file: line 1 is the persona filename, line 2 the prompt count
+# since the last reminder.
+write_state() {
+    local tmp
+    tmp="$(mktemp "$state.XXXXXX")" || return
+    printf '%s\n%d\n' "$1" "$2" > "$tmp" && mv "$tmp" "$state"
 }
 
-# The persona the style file currently holds, or "".
-style_persona() {
+# The persona recorded for this session, if it still exists, or "".
+recorded_persona() {
     local name
-    [[ -f "$STYLE" ]] || return
-    name="$(sed -n 's/^description: Claudius persona: \(.*\)$/\1/p' "$STYLE" | head -n 1)"
-    [[ -n "$name" && -f "$PERSONAS/$name.md" ]] && echo "$name.md"
+    [[ -f "$state" ]] || return
+    name="$(sed -n '1p' "$state")"
+    [[ "$name" == *.md && -f "$PERSONAS/$name" ]] && echo "$name"
 }
 
 input="$(cat)"
-session_id="$(printf '%s' "$input" | grep -o '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | head -n 1 | sed -E 's/.*:[[:space:]]*"([^"]*)"/\1/' | tr -cd 'A-Za-z0-9_-')"
+session_id="$(json_field session_id | tr -cd 'A-Za-z0-9_-')"
 session_id="${session_id:-unknown}"
+session_source="$(json_field source)"
 
 mkdir -p "$SESSIONS"
+state="$SESSIONS/$session_id"
 
 if [[ "${1:-}" == "-r" || "${1:-}" == "--remind" ]]; then
     ((REMIND_EVERY > 0)) || exit 0
 
-    state="$SESSIONS/$session_id"
-    reminder=""
+    persona="$(recorded_persona)"
     count=0
-    synced=""
-    if [[ -f "$state" ]]; then
-        reminder="$(sed -n '1p' "$state")"
-        count="$(sed -n '2p' "$state")"
-        synced="$(sed -n '3p' "$state")"
-    fi
-
-    # Claude Code reads the output style on a session's first prompt. If
-    # another session started in the meantime, the style file now holds that
-    # session's persona, and so does this session. Re-point the reminder at
-    # whatever the file holds right now, once, so it matches the actual voice.
-    if ((PLUGIN)) && [[ -z "$synced" ]]; then
-        loaded="$(style_persona)"
-        [[ -n "$loaded" ]] && reminder="$(reminder_text "$loaded")"
-        synced=1
-    fi
-
-    reminder="${reminder:-$GENERIC_REMINDER}"
+    [[ -f "$state" ]] && count="$(sed -n '2p' "$state")"
     [[ "$count" =~ ^[0-9]+$ ]] || count=0
     count=$((count + 1))
 
     if ((count >= REMIND_EVERY)); then
-        printf 'Claudius reminder: %s\n' "$reminder"
+        printf 'Claudius reminder: %s\n' "$(reminder_text "$persona")"
         count=0
     fi
 
-    tmp="$(mktemp "$state.XXXXXX")" || exit 0
-    printf '%s\n%d\n%s\n' "$reminder" "$count" "$synced" > "$tmp" && mv "$tmp" "$state"
+    write_state "$persona" "$count"
     exit 0
 fi
 
@@ -207,17 +186,29 @@ if ((PLUGIN)) && [[ ! -f "$WEIGHTS" && -f "$ROOT/weights.csv" ]]; then
     cp "$ROOT/weights.csv" "$WEIGHTS"
 fi
 
-find "$SESSIONS" -type f -mtime +7 -delete 2>/dev/null
+find "$SESSIONS" -type f -mtime +"$SESSION_TTL_DAYS" -delete 2>/dev/null
 
-pick
-seed_reminder "$session_id" "$PICKED"
+PICKED=""
+case "$session_source" in
+    resume|compact) PICKED="$(recorded_persona)" ;;
+esac
+drew=0
+if [[ -z "$PICKED" ]]; then
+    pick
+    drew=1
+fi
 
 if [[ -z "$PICKED" ]]; then
-    ((PLUGIN)) && rm -f "$STYLE"
+    rm -f "$state"
     echo "claudius: No persona could be loaded this session (the personas/ folder is empty, or every persona is disabled in weights.csv). Tell the user this at the start of your first response, in plain language."
-elif ((PLUGIN)); then
-    write_style "$PICKED"
-    printf '%s %s %s\n' "$(date '+%F %T')" "$session_id" "${PICKED%.md}" >> "$DATA/picks.log"
-else
-    render "$PICKED"
+    exit 0
 fi
+
+write_state "$PICKED" 0
+((drew)) && printf '%s %s %s %s\n' "$(date '+%F %T')" "$session_id" "${session_source:-unknown}" "${PICKED%.md}" >> "$DATA/picks.log"
+
+if [[ "$session_source" == "resume" || "$session_source" == "compact" ]]; then
+    echo "This is the persona for this session. If anything earlier in the conversation set a different persona or voice, this one replaces it."
+    echo
+fi
+render "$PICKED"

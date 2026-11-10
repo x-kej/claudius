@@ -1,8 +1,8 @@
 {
   "name": "claudius",
   "displayName": "Claudius",
-  "description": "Gives each Claude Code session a randomly chosen persona, delivered as an output style.",
+  "description": "Gives each Claude Code session a randomly chosen persona.",
   "author": { "name": "Kevin E. Johnson" },
   "repository": "https://github.com/x-kej/claudius",
-  "keywords": ["persona", "fun", "output-style"]
+  "keywords": ["persona", "fun"]
 }
